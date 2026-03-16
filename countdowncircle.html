@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Visual Countdown</title>
+  <style>
+    :root{
+      --bg: #0b0d12;
+      --size: min(70vmin, 520px);
+      --thickness: 18;
+    }
+    html,body{
+      height:100%;
+      margin:0;
+      background: radial-gradient(1200px 800px at 50% 35%, #111a2a 0%, var(--bg) 60%);
+      display:grid;
+      place-items:center;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:#fff;
+      user-select:none;
+    }
+    .wrap{
+      width: var(--size);
+      display:grid;
+      place-items:center;
+      position:relative;
+      gap:16px;
+    }
+    .ring{
+      width: var(--size);
+      height: var(--size);
+      display:block;
+      filter: drop-shadow(0 10px 30px rgba(0,0,0,0.35));
+      cursor:pointer;
+    }
+
+    /* Input + controls */
+    .panel{
+      width: min(560px, 92vw);
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      justify-content:center;
+      align-items:center;
+      padding:12px 14px;
+      border:1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      border-radius: 999px;
+      backdrop-filter: blur(8px);
+    }
+    .panel label{
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    input{
+      width: 120px;
+      padding:10px 12px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,0.14);
+      background: rgba(0,0,0,0.25);
+      color:#fff;
+      outline:none;
+      font-size: 14px;
+    }
+    input::placeholder{ color: rgba(255,255,255,0.45); }
+
+    button{
+      height:40px;
+      padding:0 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      backdrop-filter: blur(6px);
+      color:white;
+      cursor:pointer;
+      font-size:14px;
+    }
+    button:hover{ background: rgba(255,255,255,0.10); }
+    button:active{ transform: translateY(1px); }
+
+    .hint{
+      font-size: 12px;
+      opacity: 0.65;
+      text-align:center;
+      line-height: 1.35;
+    }
+
+    .sr-only{
+      position:absolute;
+      width:1px;height:1px;
+      padding:0;margin:-1px;
+      overflow:hidden;clip:rect(0,0,0,0);
+      white-space:nowrap;border:0;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap" aria-label="Visual countdown timer">
+    <svg class="ring" viewBox="0 0 200 200" role="img" aria-label="Countdown ring (click to start/pause)">
+      <defs>
+        <mask id="donut">
+          <rect width="200" height="200" fill="black"></rect>
+          <circle cx="100" cy="100" r="74" fill="none" stroke="white" stroke-width="18" stroke-linecap="round"></circle>
+        </mask>
+      </defs>
+
+      <circle cx="100" cy="100" r="74" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="18"></circle>
+
+      <foreignObject x="0" y="0" width="200" height="200" mask="url(#donut)">
+        <div id="paint" xmlns="http://www.w3.org/1999/xhtml"
+             style="
+               width:200px;height:200px;
+               border-radius:999px;
+               --angle: 0deg;
+               --hue: 120;
+               background:
+                 conic-gradient(
+                   from -90deg,
+                   hsl(var(--hue) 90% 55%) 0deg,
+                   hsl(var(--hue) 90% 55%) var(--angle),
+                   rgba(255,255,255,0) var(--angle),
+                   rgba(255,255,255,0) 360deg
+                 );
+             ">
+        </div>
+      </foreignObject>
+    </svg>
+
+    <div class="panel" aria-label="Timer controls">
+      <label for="t">Time</label>
+      <input id="t" type="text" inputmode="text" autocomplete="off"
+             placeholder="80m / 01:20:00" aria-label="Enter duration (e.g., 80m or 01:20:00)" />
+      <button id="setStart" aria-label="Set time and start">Start</button>
+      <button id="toggle" aria-label="Start or pause">Pause</button>
+      <button id="reset" aria-label="Reset">Reset</button>
+      <button id="fullscreen" aria-label="Fullscreen">Fullscreen</button>
+      <span class="sr-only" id="status"></span>
+    </div>
+
+    <div class="hint">
+      Type <strong>mm:ss</strong> or <strong>hh:mm:ss</strong> (like <em>25:00</em> or <em>01:20:00</em>)<br/>
+      or type <strong>80m</strong>, <strong>45s</strong>, <strong>1h 20m</strong>. No numbers are shown on the ring.
+    </div>
+  </main>
+
+  <script>
+    const paint = document.getElementById("paint");
+    const input = document.getElementById("t");
+    const setStartBtn = document.getElementById("setStart");
+    const toggleBtn = document.getElementById("toggle");
+    const resetBtn = document.getElementById("reset");
+    const fsBtn = document.getElementById("fullscreen");
+    const statusEl = document.getElementById("status");
+    const ring = document.querySelector(".ring");
+
+    // State
+    let durationMs = 80 * 60 * 1000;
+    let startTime = null;
+    let elapsedBeforePause = 0;
+    let running = false;
+    let rafId = null;
+
+    function render(elapsedMs){
+      const clamped = Math.min(Math.max(elapsedMs, 0), durationMs);
+      const progress = durationMs > 0 ? (clamped / durationMs) : 1;
+
+      const angle = progress * 360;        // degrees around the circle
+      const hue = 120 - (progress * 120);  // green -> red
+
+      paint.style.setProperty("--angle", angle.toFixed(2) + "deg");
+      paint.style.setProperty("--hue", hue.toFixed(1));
+
+      statusEl.textContent = progress >= 1 ? "Done" : (running ? "Running" : "Paused");
+      document.title = progress >= 1 ? "Done" : "Visual Countdown";
+    }
+
+    function tick(now){
+      if (!running) return;
+      if (startTime === null) startTime = now;
+
+      const elapsed = elapsedBeforePause + (now - startTime);
+      render(elapsed);
+
+      if (elapsed >= durationMs){
+        running = false;
+        toggleBtn.textContent = "Start";
+        // completion pulse
+        paint.animate(
+          [{ transform: "scale(1)" }, { transform: "scale(1.02)" }, { transform: "scale(1)" }],
+          { duration: 600, iterations: 2 }
+        );
+        return;
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function start(){
+      if (durationMs <= 0) return;
+      if (running) return;
+      running = true;
+      startTime = null;
+      toggleBtn.textContent = "Pause";
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function pause(){
+      if (!running) return;
+      running = false;
+      toggleBtn.textContent = "Start";
+      if (rafId) cancelAnimationFrame(rafId);
+
+      const now = performance.now();
+      if (startTime !== null) elapsedBeforePause += (now - startTime);
+      startTime = null;
+      render(elapsedBeforePause);
+    }
+
+    function reset(){
+      running = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      startTime = null;
+      elapsedBeforePause = 0;
+      toggleBtn.textContent = "Start";
+      render(0);
+    }
+
+    // Parse duration input:
+    // Accept:
+    // - "mm:ss" or "hh:mm:ss"
+    // - "80m", "45s", "1h 20m", "1h20m15s"
+    // - "90" (interpreted as minutes by default; you can change that)
+    function parseDurationToMs(str){
+      if (!str) return null;
+      const s = str.trim().toLowerCase();
+
+      // If it looks like hh:mm:ss or mm:ss
+      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)){
+        const parts = s.split(":").map(Number);
+        let hh=0, mm=0, ss=0;
+        if (parts.length === 2){ [mm, ss] = parts; }
+        else { [hh, mm, ss] = parts; }
+        return ((hh*3600) + (mm*60) + ss) * 1000;
+      }
+
+      // If it's a plain number, treat as minutes (easy for classroom timing)
+      if (/^\d+(\.\d+)?$/.test(s)){
+        const minutes = Number(s);
+        if (!Number.isFinite(minutes)) return null;
+        return minutes * 60 * 1000;
+      }
+
+      // Token-based: 1h 20m 15s (spaces optional)
+      // Capture sequences like "1.5h", "20m", "45s"
+      const re = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)\b/g;
+      let match;
+      let totalMs = 0;
+      let found = false;
+
+      while ((match = re.exec(s)) !== null){
+        found = true;
+        const val = Number(match[1]);
+        const unit = match[2];
+
+        if (!Number.isFinite(val)) return null;
+
+        if (unit.startsWith("h")) totalMs += val * 3600 * 1000;
+        else if (unit.startsWith("m")) totalMs += val * 60 * 1000;
+        else if (unit.startsWith("s")) totalMs += val * 1000;
+      }
+
+      return found ? totalMs : null;
+    }
+
+    function setDurationAndStart(){
+      const ms = parseDurationToMs(input.value);
+      if (ms === null || ms <= 0){
+        // Do nothing; keep it silent/minimal.
+        input.style.borderColor = "rgba(255,80,80,0.7)";
+        setTimeout(() => input.style.borderColor = "rgba(255,255,255,0.14)", 700);
+        return;
+      }
+      durationMs = ms;
+      reset();
+      start();
+    }
+
+    setStartBtn.addEventListener("click", setDurationAndStart);
+    toggleBtn.addEventListener("click", () => running ? pause() : start());
+    resetBtn.addEventListener("click", reset);
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") setDurationAndStart();
+    });
+
+    ring.addEventListener("click", () => running ? pause() : start());
+
+    fsBtn.addEventListener("click", async () => {
+      try{
+        if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+        else await document.exitFullscreen();
+      }catch(e){}
+    });
+
+    // Default initial look
+    render(0);
+    toggleBtn.textContent = "Start";
+  </script>
+</body>
+</html>
