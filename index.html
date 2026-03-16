@@ -131,8 +131,7 @@
       <label for="t">Time</label>
       <input id="t" type="text" inputmode="text" autocomplete="off"
              placeholder="80m / 01:20:00" aria-label="Enter duration (e.g., 80m or 01:20:00)" />
-      <button id="setStart" aria-label="Set time and start">Start</button>
-      <button id="toggle" aria-label="Start or pause">Pause</button>
+      <button id="toggle" aria-label="Start or pause">Start</button>
       <button id="reset" aria-label="Reset">Reset</button>
       <button id="fullscreen" aria-label="Fullscreen">Fullscreen</button>
       <span class="sr-only" id="status"></span>
@@ -147,7 +146,6 @@
   <script>
     const paint = document.getElementById("paint");
     const input = document.getElementById("t");
-    const setStartBtn = document.getElementById("setStart");
     const toggleBtn = document.getElementById("toggle");
     const resetBtn = document.getElementById("reset");
     const fsBtn = document.getElementById("fullscreen");
@@ -225,16 +223,10 @@
       render(0);
     }
 
-    // Parse duration input:
-    // Accept:
-    // - "mm:ss" or "hh:mm:ss"
-    // - "80m", "45s", "1h 20m", "1h20m15s"
-    // - "90" (interpreted as minutes by default; you can change that)
     function parseDurationToMs(str){
       if (!str) return null;
       const s = str.trim().toLowerCase();
 
-      // If it looks like hh:mm:ss or mm:ss
       if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)){
         const parts = s.split(":").map(Number);
         let hh=0, mm=0, ss=0;
@@ -243,15 +235,12 @@
         return ((hh*3600) + (mm*60) + ss) * 1000;
       }
 
-      // If it's a plain number, treat as minutes (easy for classroom timing)
       if (/^\d+(\.\d+)?$/.test(s)){
         const minutes = Number(s);
         if (!Number.isFinite(minutes)) return null;
         return minutes * 60 * 1000;
       }
 
-      // Token-based: 1h 20m 15s (spaces optional)
-      // Capture sequences like "1.5h", "20m", "45s"
       const re = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)\b/g;
       let match;
       let totalMs = 0;
@@ -272,25 +261,30 @@
       return found ? totalMs : null;
     }
 
-    function setDurationAndStart(){
-      const ms = parseDurationToMs(input.value);
-      if (ms === null || ms <= 0){
-        // Do nothing; keep it silent/minimal.
-        input.style.borderColor = "rgba(255,80,80,0.7)";
-        setTimeout(() => input.style.borderColor = "rgba(255,255,255,0.14)", 700);
-        return;
+    function handleToggle(){
+      if (running){
+        pause();
+      } else {
+        // If there's something in the input field, treat it as a new duration
+        if (input.value.trim()){
+          const ms = parseDurationToMs(input.value);
+          if (ms === null || ms <= 0){
+            input.style.borderColor = "rgba(255,80,80,0.7)";
+            setTimeout(() => input.style.borderColor = "rgba(255,255,255,0.14)", 700);
+            return;
+          }
+          durationMs = ms;
+          reset();
+        }
+        start();
       }
-      durationMs = ms;
-      reset();
-      start();
     }
 
-    setStartBtn.addEventListener("click", setDurationAndStart);
-    toggleBtn.addEventListener("click", () => running ? pause() : start());
+    toggleBtn.addEventListener("click", handleToggle);
     resetBtn.addEventListener("click", reset);
 
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") setDurationAndStart();
+      if (e.key === "Enter") handleToggle();
     });
 
     ring.addEventListener("click", () => running ? pause() : start());
